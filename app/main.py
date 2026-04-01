@@ -31,6 +31,17 @@ app.add_middleware(
 )
 
 
+# ── Home root — confirmation the server is UP ──────────────────
+@app.get("/", tags=["Home"])
+def read_root():
+    """Welcome to ApnaPG API."""
+    return {
+        "message": "Welcome to the ApnaPG API",
+        "status": "online",
+        "documentation": "/docs"
+    }
+
+
 # ── Health check ────────────────────────────────────────────────
 @app.get("/health", tags=["Health"])
 def health_check():
