@@ -28,10 +28,25 @@ def sync_user(data: UserCreate, db: Session = Depends(get_db)):
     Creates a user in the local DB if they don't exist,
     or returns the existing record.
     """
+    from sqlalchemy.exc import IntegrityError
+
     existing = user_crud.get_user_by_clerk_id(db, data.clerk_id)
     if existing:
         return existing
-    return user_crud.create_user(db, data)
+        
+    # Check if the user recreated their Clerk account using the same email
+    existing_email = user_crud.get_user_by_email(db, data.email)
+    if existing_email:
+        existing_email.clerk_id = data.clerk_id
+        db.commit()
+        db.refresh(existing_email)
+        return existing_email
+        
+    try:
+        return user_crud.create_user(db, data)
+    except IntegrityError:
+        db.rollback()
+        return user_crud.get_user_by_clerk_id(db, data.clerk_id)
 
 
 @router.get(

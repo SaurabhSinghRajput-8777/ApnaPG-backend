@@ -52,3 +52,4 @@ class ConnectionDetailOut(BaseModel):
     property_locality: Optional[str] = None
     owner_name: Optional[str] = None
     owner_phone: Optional[str] = None
+    owner_id: Optional[UUID] = None

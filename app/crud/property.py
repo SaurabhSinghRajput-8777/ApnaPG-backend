@@ -113,3 +113,12 @@ def add_property_image(
     db.commit()
     db.refresh(img)
     return img
+
+
+def delete_property(db: Session, property_id: UUID) -> None:
+    """Delete a property listing (cascades handle images in DB)."""
+    stmt = select(Property).where(Property.id == property_id)
+    prop = db.execute(stmt).scalar_one_or_none()
+    if prop:
+        db.delete(prop)
+        db.commit()

@@ -4,6 +4,8 @@ Property API endpoints.
 GET  /api/properties         — List/search properties with filters.
 GET  /api/properties/{id}    — Get detailed property view with images.
 POST /api/properties         — (Owner only) Create a new listing.
+PUT  /api/properties/{id}    — (Owner/Admin) Update a listing.
+DELETE /api/properties/{id}  — (Owner/Admin) Delete a listing.
 """
 
 from uuid import UUID
@@ -94,3 +96,65 @@ def create_property(
         )
 
     return property_crud.create_property(db, owner_id=user.id, data=data)
+
+
+@router.put(
+    "/{property_id}",
+    response_model=PropertyOut,
+    summary="Update an existing property listing",
+)
+def update_property(
+    property_id: UUID,
+    data: PropertyUpdate,
+    current_user: CurrentUser = Depends(require_role("owner", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Owner/Admin only.
+    Updates property details. Verifies that the requester owns the property.
+    """
+    # 1. Fetch user UUID
+    user = user_crud.get_user_by_clerk_id(db, current_user.clerk_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    # 2. Fetch property and verify ownership
+    prop = property_crud.get_property_by_id(db, property_id)
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    
+    if prop.owner_id != user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to edit this listing.")
+
+    return property_crud.update_property(db, prop, data)
+
+
+@router.delete(
+    "/{property_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a property listing",
+)
+def delete_property(
+    property_id: UUID,
+    current_user: CurrentUser = Depends(require_role("owner", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Owner/Admin only.
+    Permanently deletes a listing and its images from the DB.
+    """
+    # 1. Fetch user UUID
+    user = user_crud.get_user_by_clerk_id(db, current_user.clerk_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    # 2. Fetch property and verify ownership
+    prop = property_crud.get_property_by_id(db, property_id)
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    
+    if prop.owner_id != user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to delete this listing.")
+
+    property_crud.delete_property(db, property_id)
+    return None

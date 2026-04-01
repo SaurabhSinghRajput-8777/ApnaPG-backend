@@ -54,6 +54,7 @@ def _enrich_connection(db: Session, conn) -> dict:
         "property_locality": prop.locality if prop else None,
         "owner_name": owner.full_name if owner else None,
         "owner_phone": owner.phone_number if (owner and reveal_contact) else None,
+        "owner_id": owner.id if owner else None,
     }
 
 

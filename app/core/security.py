@@ -72,6 +72,7 @@ def _decode_clerk_token(token: str) -> dict:
             algorithms=["RS256"],
             issuer=settings.CLERK_ISSUER,
             options={"verify_aud": False},  # Clerk doesn't always set aud
+            leeway=60,  # 60-second buffer for clock drift (fixes 'iat' and 'exp')
         )
         return payload
     except jwt.ExpiredSignatureError:
@@ -83,6 +84,11 @@ def _decode_clerk_token(token: str) -> dict:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid authentication token: {exc}",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Authentication error (Check CLERK_JWKS_URL bounds): {exc}",
         )
 
 
@@ -107,9 +113,44 @@ async def get_current_user(
             detail="Token missing 'sub' claim.",
         )
 
-    # Clerk stores custom claims under metadata or public_metadata
-    metadata = payload.get("public_metadata", payload.get("metadata", {}))
-    role = metadata.get("role", "tenant")  # default to tenant
+    # --- Role Extraction Logic ---
+    role = payload.get("role")
+    
+    def _extract_from(obj):
+        if isinstance(obj, dict):
+            return obj.get("role")
+        return None
+
+    if not role: role = _extract_from(payload.get("public_metadata"))
+    if not role: role = _extract_from(payload.get("metadata"))
+    if not role: role = _extract_from(payload.get("unsafe_metadata"))
+
+    # --- Clerk API Fallback (if JWT lacks metadata) ---
+    if not role and settings.CLERK_SECRET_KEY:
+        import httpx
+        try:
+            print(f"DEBUG: JWT missing role. Fetching from Clerk API for sub: {clerk_id}")
+            with httpx.Client() as client:
+                resp = client.get(
+                    f"https://api.clerk.com/v1/users/{clerk_id}",
+                    headers={"Authorization": f"Bearer {settings.CLERK_SECRET_KEY}"}
+                )
+                if resp.status_code == 200:
+                    user_data = resp.json()
+                    # Check all metadata buckets in the API response
+                    role = (
+                        _extract_from(user_data.get("public_metadata")) or
+                        _extract_from(user_data.get("private_metadata")) or
+                        _extract_from(user_data.get("unsafe_metadata"))
+                    )
+                    print(f"DEBUG: Found role via Clerk API: {role}")
+                else:
+                    print(f"DEBUG: Clerk API failed with {resp.status_code}: {resp.text}")
+        except Exception as e:
+            print(f"DEBUG: Clerk API error: {e}")
+
+    # Final fallback to tenant
+    role = role or "tenant"
 
     return CurrentUser(
         clerk_id=clerk_id,
